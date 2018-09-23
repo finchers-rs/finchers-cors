@@ -4,15 +4,16 @@
 #![warn(
     missing_docs,
     missing_debug_implementations,
-    future_incompatible,
     nonstandard_style,
     rust_2018_idioms,
     unused,
 )]
+//#![warn(rust_2018_compatibility)]
 #![cfg_attr(feature = "strict", deny(warnings))]
 #![cfg_attr(feature = "strict", doc(test(attr(deny(warnings)))))]
 
 extern crate either;
+#[macro_use]
 extern crate failure;
 extern crate finchers;
 extern crate futures; // 0.1
@@ -30,9 +31,8 @@ use finchers::output::{Output, OutputContext};
 use futures::{Async, Future, Poll};
 
 use either::Either;
-use failure::Fail;
 use http::header;
-use http::header::{HeaderMap, HeaderName, HeaderValue};
+use http::header::{HeaderName, HeaderValue};
 use http::{Method, Response, StatusCode, Uri};
 
 /// A `Wrapper` for building an endpoint with CORS.
@@ -190,15 +190,15 @@ pub struct CorsEndpoint<E> {
 }
 
 fn parse_origin(h: &HeaderValue) -> Result<Uri, CorsError> {
-    let h_str = h.to_str().map_err(|_| CorsError::InvalidOrigin)?;
-    let origin_uri: Uri = h_str.parse().map_err(|_| CorsError::InvalidOrigin)?;
+    let h_str = h.to_str().map_err(|_| CorsErrorKind::InvalidOrigin)?;
+    let origin_uri: Uri = h_str.parse().map_err(|_| CorsErrorKind::InvalidOrigin)?;
 
     if origin_uri.scheme_part().is_none() {
-        return Err(CorsError::InvalidOrigin);
+        return Err(CorsErrorKind::InvalidOrigin.into());
     }
 
     if origin_uri.host().is_none() {
-        return Err(CorsError::InvalidOrigin);
+        return Err(CorsErrorKind::InvalidOrigin.into());
     }
 
     Ok(origin_uri)
@@ -209,12 +209,12 @@ impl<E> CorsEndpoint<E> {
         let origin = input
             .headers()
             .get(header::ORIGIN)
-            .ok_or_else(|| CorsError::MissingOrigin)?;
+            .ok_or_else(|| CorsErrorKind::MissingOrigin)?;
         let parsed_origin = parse_origin(origin)?;
 
         if let Some(ref origins) = self.origins {
             if !origins.contains(&parsed_origin) {
-                return Err(CorsError::DisallowedOrigin);
+                return Err(CorsErrorKind::DisallowedOrigin.into());
             }
             return Ok(AllowedOrigin::Some(origin.clone()));
         }
@@ -231,13 +231,13 @@ impl<E> CorsEndpoint<E> {
             Some(h) => {
                 let method: Method = h
                     .to_str()
-                    .map_err(|_| CorsError::InvalidRequestMethod)?
+                    .map_err(|_| CorsErrorKind::InvalidRequestMethod)?
                     .parse()
-                    .map_err(|_| CorsError::InvalidRequestMethod)?;
+                    .map_err(|_| CorsErrorKind::InvalidRequestMethod)?;
                 if self.methods.contains(&method) {
                     Ok(Some(self.methods_value.clone()))
                 } else {
-                    Err(CorsError::DisallowedRequestMethod)
+                    Err(CorsErrorKind::DisallowedRequestMethod.into())
                 }
             }
             None => Ok(None),
@@ -251,15 +251,16 @@ impl<E> CorsEndpoint<E> {
                     let mut request_headers = HashSet::new();
                     let hdrs_str = hdrs
                         .to_str()
-                        .map_err(|_| CorsError::InvalidRequestHeaders)?;
+                        .map_err(|_| CorsErrorKind::InvalidRequestHeaders)?;
                     for hdr in hdrs_str.split(',').map(|s| s.trim()) {
-                        let hdr: HeaderName =
-                            hdr.parse().map_err(|_| CorsError::InvalidRequestHeaders)?;
+                        let hdr: HeaderName = hdr
+                            .parse()
+                            .map_err(|_| CorsErrorKind::InvalidRequestHeaders)?;
                         request_headers.insert(hdr);
                     }
 
                     if !headers.is_superset(&request_headers) {
-                        return Err(CorsError::DisallowedRequestHeaders);
+                        return Err(CorsErrorKind::DisallowedRequestHeaders.into());
                     }
 
                     Ok(self.headers_value.clone())
@@ -304,12 +305,8 @@ impl<E> CorsEndpoint<E> {
                 }
                 None => Ok(Either::Right(origin)),
             },
-            ref method => {
-                if !self.methods.contains(method) {
-                    return Err(CorsError::DisallowedRequestMethod);
-                }
-                Ok(Either::Right(origin))
-            }
+            ref method if self.methods.contains(method) => Ok(Either::Right(origin)),
+            _ => Err(CorsErrorKind::DisallowedRequestMethod.into()),
         }
     }
 }
@@ -350,21 +347,22 @@ where
             Either::Left(response) => Ok(Async::Ready((CorsResponse(
                 CorsResponseKind::Preflight(response),
             ),))),
-            Either::Right(origin) => match self.future.poll() {
-                Ok(Async::NotReady) => return Ok(Async::NotReady),
-                Ok(Async::Ready(output)) => Ok(Async::Ready((CorsResponse(
-                    CorsResponseKind::Normal(NormalResponse {
-                        output,
-                        origin,
-                        allow_credentials: endpoint.allow_credentials,
-                    }),
-                ),))),
-                Err(cause) => Err(CorsError::Other {
-                    cause,
-                    origin,
-                    allow_credentials: endpoint.allow_credentials,
-                }.into()),
-            },
+            Either::Right(allowed_origin) => {
+                with_get_cx(|input| {
+                    input
+                        .response_headers()
+                        .append(header::ACCESS_CONTROL_ALLOW_ORIGIN, allowed_origin.into());
+                    if endpoint.allow_credentials {
+                        input.response_headers().append(
+                            header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+                            HeaderValue::from_static("true"),
+                        );
+                    }
+                });
+                self.future
+                    .poll()
+                    .map(|x| x.map(|output| (CorsResponse(CorsResponseKind::Normal(output)),)))
+            }
         }
     }
 }
@@ -376,54 +374,19 @@ pub struct CorsResponse<T>(CorsResponseKind<T>);
 #[derive(Debug)]
 enum CorsResponseKind<T> {
     Preflight(Response<()>),
-    Normal(NormalResponse<T>),
+    Normal(T),
 }
 
 impl<T: Output> Output for CorsResponse<T> {
     type Body = Optional<T::Body>;
-    type Error = Error;
+    type Error = T::Error;
 
     fn respond(self, cx: &mut OutputContext<'_>) -> Result<Response<Self::Body>, Self::Error> {
         match self.0 {
             CorsResponseKind::Preflight(response) => Ok(response.map(|_| Optional::empty())),
-            CorsResponseKind::Normal(normal) => normal.respond(cx),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct NormalResponse<T> {
-    output: T,
-    origin: AllowedOrigin,
-    allow_credentials: bool,
-}
-
-impl<T: Output> Output for NormalResponse<T> {
-    type Body = Optional<T::Body>;
-    type Error = Error;
-
-    fn respond(self, cx: &mut OutputContext<'_>) -> Result<Response<Self::Body>, Self::Error> {
-        match self.output.respond(cx) {
-            Ok(mut response) => {
-                response
-                    .headers_mut()
-                    .entry(header::ACCESS_CONTROL_ALLOW_ORIGIN)
-                    .unwrap()
-                    .or_insert(self.origin.into());
-                if self.allow_credentials {
-                    response
-                        .headers_mut()
-                        .entry(header::ACCESS_CONTROL_ALLOW_CREDENTIALS)
-                        .unwrap()
-                        .or_insert_with(|| HeaderValue::from_static("true"));
-                }
-                Ok(response.map(Into::into))
+            CorsResponseKind::Normal(normal) => {
+                normal.respond(cx).map(|response| response.map(Into::into))
             }
-            Err(cause) => Err(CorsError::Other {
-                cause: cause.into(),
-                origin: self.origin,
-                allow_credentials: self.allow_credentials,
-            }.into()),
         }
     }
 }
@@ -443,71 +406,53 @@ impl Into<HeaderValue> for AllowedOrigin {
     }
 }
 
+#[allow(missing_docs)]
 #[derive(Debug, Fail)]
-enum CorsError {
-    #[fail(display = "Invalid CORS request: the Origin is missing.")]
-    MissingOrigin,
+#[fail(display = "Invalid CORS request: {}", kind)]
+pub struct CorsError {
+    kind: CorsErrorKind,
+}
 
-    #[fail(display = "Invalid CORS request: the provided Origin is not a valid value.")]
-    InvalidOrigin,
-
-    #[fail(display = "Invalid CORS request: the provided Origin is not allowed.")]
-    DisallowedOrigin,
-
-    #[fail(
-        display = "Invalid CORS request: the provided Access-Control-Request-Method is not a valid value."
-    )]
-    InvalidRequestMethod,
-
-    #[fail(
-        display = "Invalid CORS request: the provided Access-Control-Request-Method is not allowed."
-    )]
-    DisallowedRequestMethod,
-
-    #[fail(
-        display = "Invalid CORS request: the provided Access-Control-Request-Headers is not a valid value."
-    )]
-    InvalidRequestHeaders,
-
-    #[fail(
-        display = "Invalid CORS request: the provided Access-Control-Request-Headers is not allowed."
-    )]
-    DisallowedRequestHeaders,
-
-    #[fail(display = "{}", cause)]
-    Other {
-        cause: Error,
-        origin: AllowedOrigin,
-        allow_credentials: bool,
-    },
+impl From<CorsErrorKind> for CorsError {
+    fn from(kind: CorsErrorKind) -> CorsError {
+        CorsError { kind }
+    }
 }
 
 impl HttpError for CorsError {
     fn status_code(&self) -> StatusCode {
-        match self {
-            CorsError::Other { ref cause, .. } => cause.status_code(),
-            _ => StatusCode::BAD_REQUEST,
-        }
+        StatusCode::BAD_REQUEST
     }
+}
 
-    fn headers(&self, headers: &mut HeaderMap) {
-        if let CorsError::Other {
-            ref origin,
-            allow_credentials,
-            ..
-        } = *self
-        {
-            headers
-                .entry(header::ACCESS_CONTROL_ALLOW_ORIGIN)
-                .unwrap()
-                .or_insert_with(|| origin.clone().into());
-
-            if allow_credentials {
-                headers
-                    .entry(header::ACCESS_CONTROL_ALLOW_CREDENTIALS)
-                    .unwrap()
-                    .or_insert_with(|| HeaderValue::from_static("true"));
-            }
-        }
+impl CorsError {
+    #[allow(missing_docs)]
+    pub fn kind(&self) -> &CorsErrorKind {
+        &self.kind
     }
+}
+
+#[allow(missing_docs)]
+#[derive(Debug, Fail)]
+pub enum CorsErrorKind {
+    #[fail(display = "the Origin is missing.")]
+    MissingOrigin,
+
+    #[fail(display = "the provided Origin is not a valid value.")]
+    InvalidOrigin,
+
+    #[fail(display = "the provided Origin is not allowed.")]
+    DisallowedOrigin,
+
+    #[fail(display = "the provided Access-Control-Request-Method is not a valid value.")]
+    InvalidRequestMethod,
+
+    #[fail(display = "the provided Access-Control-Request-Method is not allowed.")]
+    DisallowedRequestMethod,
+
+    #[fail(display = "the provided Access-Control-Request-Headers is not a valid value.")]
+    InvalidRequestHeaders,
+
+    #[fail(display = "the provided Access-Control-Request-Headers is not allowed.")]
+    DisallowedRequestHeaders,
 }

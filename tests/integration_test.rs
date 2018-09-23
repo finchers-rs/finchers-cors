@@ -1,9 +1,10 @@
+#[macro_use]
 extern crate finchers;
 extern crate finchers_cors;
 extern crate http;
+#[macro_use]
 extern crate matches;
 
-use finchers::impl_endpoint;
 use finchers::local;
 use finchers::prelude::*;
 
@@ -32,7 +33,6 @@ mod simple {
 
     use http::header;
     use http::{Method, Uri};
-    use matches::assert_matches;
 
     use super::hello_world;
 
@@ -165,7 +165,6 @@ mod preflight {
     use http::header;
     use http::header::{HeaderName, HeaderValue};
     use http::{Method, Uri};
-    use matches::assert_matches;
     use std::collections::HashSet;
     use std::time::Duration;
 

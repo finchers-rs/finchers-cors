@@ -22,3 +22,6 @@ http = "0.1"
 
 [dev-dependencies]
 matches = "0.1.8"
+
+[patch.crates-io]
+finchers = { git = "https://github.com/finchers-rs/finchers.git", branch = "master" }

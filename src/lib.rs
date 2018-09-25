@@ -1,6 +1,9 @@
 //! A set of components which provides the support for CORS in Finchers.
 
-#![doc(html_root_url = "https://docs.rs/finchers-cors/0.1.0-alpha.1")]
+// master
+#![doc(html_root_url = "https://finchers-rs.github.io/finchers-cors")]
+// released
+//#![doc(html_root_url = "https://docs.rs/finchers-cors/0.1.0-alpha.1")]
 #![warn(
     missing_docs,
     missing_debug_implementations,
@@ -25,7 +28,6 @@ use std::time::Duration;
 use finchers::endpoint::{Context, Endpoint, EndpointResult, Wrapper};
 use finchers::error::{Error, HttpError};
 use finchers::input::{with_get_cx, Input};
-use finchers::output::payload::Optional;
 use finchers::output::{Output, OutputContext};
 
 use futures::{Async, Future, Poll};
@@ -378,14 +380,14 @@ enum CorsResponseKind<T> {
 }
 
 impl<T: Output> Output for CorsResponse<T> {
-    type Body = Optional<T::Body>;
+    type Body = Option<T::Body>;
     type Error = T::Error;
 
     fn respond(self, cx: &mut OutputContext<'_>) -> Result<Response<Self::Body>, Self::Error> {
         match self.0 {
-            CorsResponseKind::Preflight(response) => Ok(response.map(|_| Optional::empty())),
+            CorsResponseKind::Preflight(response) => Ok(response.map(|_| None)),
             CorsResponseKind::Normal(normal) => {
-                normal.respond(cx).map(|response| response.map(Into::into))
+                normal.respond(cx).map(|response| response.map(Some))
             }
         }
     }

@@ -47,8 +47,9 @@ matrix:
       script:
         - rm -rf target/doc
         - cargo update
-        - cargo doc
+        - cargo doc --no-deps
         - rm -f target/doc/.lock
+        - echo '<meta http-equiv="refresh" content="0;URL=finchers_cors/index.html">' > target/doc/index.html
       deploy:
         provider: pages
         skip_cleanup: true

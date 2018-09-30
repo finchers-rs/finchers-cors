@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["CorsErrorKind",""]],"struct":[["CorsEndpoint","An endpoint which represents a route with CORS handling."],["CorsError",""],["CorsFilter","A `Wrapper` for building an endpoint with CORS."],["CorsResponse",""]]});

@@ -2,7 +2,7 @@
 name = "finchers-cors"
 version = "0.1.0-alpha.1"
 description = """
-A set of components for supporting CORS in Finchers.
+CORS support for Finchers.
 """
 authors = ["Yusuke Sasaki <yusuke.sasaki.nuem@gmail.com>"]
 license = "MIT OR Apache-2.0"
@@ -23,5 +23,5 @@ http = "0.1"
 [dev-dependencies]
 matches = "0.1.8"
 
-[patch.crates-io]
-finchers = { git = "https://github.com/finchers-rs/finchers.git", branch = "master" }
+[patch.crates-io.finchers]
+git = "https://github.com/finchers-rs/finchers.git"

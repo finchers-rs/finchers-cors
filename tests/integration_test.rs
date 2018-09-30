@@ -11,7 +11,7 @@ use finchers::prelude::*;
 use http::header;
 
 fn hello_world() -> impl_endpoint!(Output = (&'static str,)) {
-    endpoint::value("Hello, world!").into()
+    endpoint::cloned("Hello, world!").into()
 }
 
 #[test]

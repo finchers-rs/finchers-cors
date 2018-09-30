@@ -25,9 +25,10 @@ extern crate http;
 use std::collections::HashSet;
 use std::time::Duration;
 
-use finchers::endpoint::{Context, Endpoint, EndpointResult, Wrapper};
+use finchers::endpoint::with_get_cx;
+use finchers::endpoint::{ApplyContext, ApplyResult, Endpoint, Wrapper};
 use finchers::error::{Error, HttpError};
-use finchers::input::{with_get_cx, Input};
+use finchers::input::Input;
 use finchers::output::{Output, OutputContext};
 
 use futures::{Async, Future, Poll};
@@ -320,7 +321,7 @@ where
     type Output = (CorsResponse<E::Output>,);
     type Future = CorsFuture<'a, E>;
 
-    fn apply(&'a self, cx: &mut Context<'_>) -> EndpointResult<Self::Future> {
+    fn apply(&'a self, cx: &mut ApplyContext<'_>) -> ApplyResult<Self::Future> {
         Ok(CorsFuture {
             future: self.endpoint.apply(cx)?,
             endpoint: self,

@@ -1,13 +1,10 @@
 # `finchers-cors`
 
 [![crates.io](https://img.shields.io/crates/v/finchers-cors.svg)](https://crates.io/crates/finchers-cors)
+[![API documentation](https://img.shields.io/badge/api-docs-blue.svg)](https://finchers-rs.github.io/docs)
 [![Build Status](https://travis-ci.org/finchers-rs/finchers-cors.svg?branch=master)](https://travis-ci.org/finchers-rs/finchers-cors)
 
-A set of components for supporting CORS in Finchers.
-
-## Documentation
-
-* [API documentation](https://finchers-rs.github.io/finchers-cors/finchers_cors/index.html)
+CORS support for Finchers.
 
 ## License
 
